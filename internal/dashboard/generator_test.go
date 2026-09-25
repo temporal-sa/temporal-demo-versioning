@@ -1,58 +1,98 @@
-package dashboard
+package dashboard_test
 
 import (
+	"context"
+	"io"
+	"log/slog"
+	"slices"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
+
+	"github.com/alexandreroman/temporal-versioning-demo/internal/dashboard"
+	"go.temporal.io/sdk/client"
 )
 
-func TestSessionGeneratorManagerPlayPauseAndAutoPause(t *testing.T) {
-	now := time.Unix(1_000_000, 0)
-	manager := newSessionGeneratorManager(func() time.Time { return now })
-	sessionID := "4a1c8f0b-41b2-4c43-8991-75c5950bc04a"
+// recordingClient records the workflow IDs the Generator starts. Embedding the
+// interface satisfies client.Client; any other method would panic if called.
+type recordingClient struct {
+	client.Client
 
-	if manager.Status(sessionID).Running {
-		t.Fatal("generator should start paused")
+	mu  sync.Mutex
+	ids []string
+}
+
+func (c *recordingClient) ExecuteWorkflow(_ context.Context, opts client.StartWorkflowOptions, _ any,
+	_ ...any,
+) (client.WorkflowRun, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ids = append(c.ids, opts.ID)
+	return nil, nil
+}
+
+func (c *recordingClient) startedIDs() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.ids)
+}
+
+func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+func TestGeneratorPauseToggle(t *testing.T) {
+	tests := []struct {
+		name string
+		ops  []func(*dashboard.Generator)
+		want bool
+	}{
+		{"starts running", nil, false},
+		{"pause", []func(*dashboard.Generator){(*dashboard.Generator).Pause}, true},
+		{"pause is idempotent", []func(*dashboard.Generator){
+			(*dashboard.Generator).Pause, (*dashboard.Generator).Pause,
+		}, true},
+		{"resume after pause", []func(*dashboard.Generator){
+			(*dashboard.Generator).Pause, (*dashboard.Generator).Resume,
+		}, false},
+		{"resume while running", []func(*dashboard.Generator){(*dashboard.Generator).Resume}, false},
 	}
-
-	manager.Play(sessionID)
-	if !manager.Status(sessionID).Running {
-		t.Fatal("generator should run after Play")
-	}
-
-	now = now.Add(generatorMaxRun - time.Second)
-	if !manager.Status(sessionID).Running {
-		t.Fatal("generator should still run before the 10-minute cap")
-	}
-
-	now = now.Add(time.Second)
-	if manager.Status(sessionID).Running {
-		t.Fatal("generator should auto-pause at the 10-minute cap")
-	}
-
-	manager.Play(sessionID)
-	manager.Pause(sessionID)
-	if manager.Status(sessionID).Running {
-		t.Fatal("generator should pause immediately")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := dashboard.NewGenerator(nil, "q", time.Second, 0, discardLogger())
+			for _, op := range tt.ops {
+				op(g)
+			}
+			if got := g.Paused(); got != tt.want {
+				t.Errorf("Paused() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
-func TestSessionGeneratorManagerActiveSessionsDropsExpired(t *testing.T) {
-	now := time.Unix(1_000_000, 0)
-	manager := newSessionGeneratorManager(func() time.Time { return now })
-	active := "4a1c8f0b-41b2-4c43-8991-75c5950bc04a"
-	expired := "fd10f8d0-70b3-47d8-93f3-c589f7675ea0"
+// TestGeneratorRunSkipsTicksWhilePaused checks that paused ticks start nothing
+// and consume no order ID, so the first order after Resume is order-1.
+func TestGeneratorRunSkipsTicksWhilePaused(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		const interval = time.Second
+		c := &recordingClient{}
+		g := dashboard.NewGenerator(c, "q", interval, 0, discardLogger())
+		g.Pause()
 
-	manager.Play(active)
-	manager.Play(expired)
-	now = now.Add(generatorMaxRun - time.Second)
-	manager.Play(active)
-	now = now.Add(time.Second)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		go g.Run(ctx)
 
-	got := manager.ActiveSessions()
-	if len(got) != 1 || got[0] != active {
-		t.Fatalf("ActiveSessions() = %v, want [%s]", got, active)
-	}
-	if manager.Status(expired).Running {
-		t.Fatal("expired session should have been removed")
-	}
+		time.Sleep(3 * interval)
+		synctest.Wait()
+		if ids := c.startedIDs(); len(ids) != 0 {
+			t.Fatalf("started %v while paused, want none", ids)
+		}
+
+		g.Resume()
+		time.Sleep(interval)
+		synctest.Wait()
+		if ids := c.startedIDs(); !slices.Equal(ids, []string{"order-1"}) {
+			t.Errorf("started %v after resume, want [order-1]", ids)
+		}
+	})
 }

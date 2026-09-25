@@ -21,7 +21,7 @@ recovered with zero non-determinism errors.
 
 ## What it demonstrates
 
-https://github.com/user-attachments/assets/6e175c36-3f42-43e8-bf04-d387328d8d10
+https://github.com/user-attachments/assets/276085df-2c64-4550-bb36-81dc85c29e68
 
 Temporal Worker Versioning lets you ship new worker code
 without breaking running workflows. This demo makes each
@@ -62,10 +62,12 @@ default.)
 | `v3`    | Received → Cooking → Quality check → Drone delivery → Delivered   | Drone always fails; stalls. |
 
 `v3` is intentionally buggy: its Drone delivery activity
-always errors, so v3 orders retry forever via Temporal's
+always errors, so v3 orders keep retrying via Temporal's
 native durable retry, go red, and stall (Running) until they
-are recovered onto the healthy version — they never
-fail/complete.
+are recovered onto the healthy version. An order nobody
+recovers retries for up to 15 minutes, then fails and leaves
+the dashboard, so a demo left unattended does not keep burning
+Temporal actions.
 
 ## Architecture
 
@@ -87,20 +89,21 @@ graph TD
   the page. Rollout actions are driven through **hypermedia
   endpoints** that return server-rendered **HTML fragments**
   (not JSON), so they deliberately live off the `/api/` prefix:
-  `POST /deploy` (ramp or promote), `POST /rollback`,
-  `POST /orders/play`, `POST /orders/pause`, and
+  `POST /deploy` (ramp or promote), `POST /rollback`, and
   `POST /orders/{id}/recover`. Their modal fragments are served
   by `GET /deploy` and `GET /rollback` and dismissed with
-  `DELETE /modal`. The SPA (`index.html`) is embedded into the
-  backend binary.
+  `DELETE /modal`. `PUT /pause` stops the backend from starting
+  new orders (in-flight orders carry on) and `DELETE /pause`
+  resumes it; both answer an empty 200 and every browser picks
+  up the new state from the next SSE frame, pushed right away.
+  The SPA (`index.html`) is embedded into the backend binary.
 - **Go backend** (`cmd/backend`) — polls Temporal
   (`DescribeWorkerDeployment` for routing config and version
   summaries, plus lists and `getState`-queries the open
   `PizzaOrder` workflows), serves the SPA, drives the routing
-  and recovery actions, and runs an operator-controlled order
-  generator. Click **Play** to start one order every few seconds;
-  the generator auto-pauses after 10 minutes, and **Pause** stops
-  new orders immediately. Each worker reports its friendly version
+  and recovery actions, and runs an order generator that
+  starts one order every few seconds so there is always live
+  traffic. Each worker reports its friendly version
   (`v1`/`v2`/`v3`) and step progress through the **`getState`
   query**, so the UI colours orders without decoding Build
   IDs.
@@ -133,7 +136,7 @@ build.
 - A running [temporal-k8s](https://github.com/alexandreroman/temporal-k8s)
   Kind cluster (Temporal Server + Temporal Worker
   Controller).
-- [Go](https://go.dev/) 1.26+
+- [Go](https://go.dev/) 1.27+
 - [GNU Make](https://www.gnu.org/software/make/)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) and
   [Docker](https://www.docker.com/). The local stack uses
@@ -163,7 +166,9 @@ Run `make help` to list every target grouped by section.
 
 You can run the whole demo on your machine without a cluster.
 Both flows below start a Temporal dev server in Docker via
-Compose, so no `temporal-k8s` cluster is required.
+Compose, so no `temporal-k8s` cluster is required. Each flow
+prints its addresses when it starts; `make endpoints` reprints
+the Docker stack's.
 
 Locally the Worker Controller is not in play; the backend
 bootstraps v1 itself — see [Bootstrapping the first
@@ -306,8 +311,8 @@ worker has labelled **v1** in its Worker Deployment Version
 metadata, and **waits** for that metadata before promoting
 (only when no Current is set yet). Keying off the published
 label means starting v1 / v2 / v3 together never promotes an
-arbitrary build. Once you click **Play**, new orders route to v1
-as soon as its worker registers, with no manual promote.
+arbitrary build — orders start flowing on v1 as soon as its
+worker registers, with no manual promote.
 
 ### Driving rollouts from the CLI
 
@@ -421,9 +426,12 @@ The on-stage flow that exercises every guarantee:
 > the same modal. The **Workflows** panel lists each version with
 > a status chip (`CURRENT` / `RAMPING N%`) and an in-flight order
 > count, so the active Current and Ramping targets stay visible.
+> The **Pause orders** toggle in the **Live orders** header stops
+> new orders at any point while in-flight ones carry on;
+> **Resume orders** restarts the stream.
 
-1. **Steady state on v1.** Click **Play**. Orders stream in on
-   v1 (4 steps). The **Workflows** panel shows `v1` as Current.
+1. **Steady state on v1.** Orders stream in on v1 (4 steps).
+   The **Workflows** panel shows `v1` as Current.
 2. **Ship v2.** Run `make deploy-v2` (repoints the worker image
    to the `:v2` tag). Wait for the v2 pod.
 3. **Ramp v2.** In the UI, ramp 25% → 50% → 100% and click
@@ -433,8 +441,9 @@ The on-stage flow that exercises every guarantee:
    Quality check. v1 drains and is sunset by the controller.
 4. **Ship v3 and ramp to 25%.** Run `make deploy-v3`, wait
    for the pod, then ramp v3 to 25%. About 25% of
-   new orders reach the Drone step, go **red** with a retry
-   count, and stall. v2 orders are unaffected.
+   new orders reach the Drone step, go **red**, and stall
+   while Temporal keeps retrying the drone in the background.
+   v2 orders are unaffected.
 5. **Rollback.** Click **Rollback**. The ramp drops to 0 and
    100% of new orders go to v2 again. The already-stuck v3
    orders stay red — rollback caps the blast radius but does

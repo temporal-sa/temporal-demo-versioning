@@ -20,41 +20,38 @@ const (
 )
 
 // sseRegions are the named regions streamed to the browser on every frame.
-var sseRegions = []string{"orders", "versions", "controls"}
+var sseRegions = []string{"orders", "versions", "controls", "publishing"}
+
+// OrderSwitch pauses and resumes the start of new orders. *Generator
+// implements it; the Server only needs this narrow view of it.
+type OrderSwitch interface {
+	Pause()
+	Resume()
+	Paused() bool
+}
 
 // Server exposes the dashboard API and serves the SPA.
 type Server struct {
-	hub       *Hub
-	actions   *Actions
-	reader    TemporalReader
-	renderer  *Renderer
-	frontend  http.Handler
-	generator *SessionGeneratorManager
-	interval  time.Duration
-	logger    *slog.Logger
+	hub         *Hub
+	actions     *Actions
+	orderSwitch OrderSwitch
+	renderer    *Renderer
+	frontend    http.Handler
+	logger      *slog.Logger
 }
 
 // NewServer builds a Server serving the SPA from the given file system (the
 // embedded frontend assets in production).
-func NewServer(
-	hub *Hub,
-	actions *Actions,
-	reader TemporalReader,
-	renderer *Renderer,
-	frontend fs.FS,
-	generator *SessionGeneratorManager,
-	interval time.Duration,
+func NewServer(hub *Hub, actions *Actions, orderSwitch OrderSwitch, renderer *Renderer, frontend fs.FS,
 	logger *slog.Logger,
 ) *Server {
 	return &Server{
-		hub:       hub,
-		actions:   actions,
-		reader:    reader,
-		renderer:  renderer,
-		frontend:  http.FileServerFS(frontend),
-		generator: generator,
-		interval:  interval,
-		logger:    logger,
+		hub:         hub,
+		actions:     actions,
+		orderSwitch: orderSwitch,
+		renderer:    renderer,
+		frontend:    http.FileServerFS(frontend),
+		logger:      logger,
 	}
 }
 
@@ -70,56 +67,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /rollback", s.handleRollbackModal)
 	mux.HandleFunc("GET /deploy/ramp", s.handleDeployRamp)
 	mux.HandleFunc("DELETE /modal", s.handleClose)
+	mux.HandleFunc("PUT /pause", s.handlePause)
+	mux.HandleFunc("DELETE /pause", s.handleResume)
 	mux.HandleFunc("POST /deploy", s.handleDeploy)
 	mux.HandleFunc("POST /rollback", s.handleRollback)
-	mux.HandleFunc("POST /orders/play", s.handleOrdersPlay)
-	mux.HandleFunc("POST /orders/pause", s.handleOrdersPause)
 	mux.HandleFunc("POST /orders/{id}/recover", s.handleRecoverOne)
-	mux.HandleFunc("/", s.handleFrontend)
+	mux.Handle("/", s.frontend)
 	return mux
-}
-
-func (s *Server) currentState(ctx context.Context, sessionID string) (DashboardState, error) {
-	if s.reader != nil {
-		routing, summaries, err := s.reader.DeploymentSnapshot(ctx)
-		if err != nil {
-			return DashboardState{}, err
-		}
-		orders, err := s.reader.OpenOrders(ctx, sessionID)
-		if err != nil {
-			return DashboardState{}, err
-		}
-		state := BuildState(routing, summaries, orders)
-		if s.generator != nil {
-			state.Generator = s.generator.Status(sessionID)
-		}
-		return state, nil
-	}
-
-	state := s.hub.Latest()
-	if s.generator != nil {
-		state.Generator = s.generator.Status(sessionID)
-	}
-	return state, nil
-}
-
-func (s *Server) renderControls(w http.ResponseWriter, r *http.Request, sessionID string) {
-	state, err := s.currentState(r.Context(), sessionID)
-	if err != nil {
-		s.logger.Warn("build controls state failed", "sessionId", sessionID, "err", err)
-		s.writeError(w, http.StatusInternalServerError, "Controls failed: "+err.Error())
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.renderer.Region(w, "controls", state); err != nil {
-		s.logger.Warn("render controls failed", "err", err)
-		s.writeError(w, http.StatusInternalServerError, "Render failed: "+err.Error())
-	}
-}
-
-func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
-	ensureSessionID(w, r)
-	s.frontend.ServeHTTP(w, r)
 }
 
 func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
@@ -128,58 +82,41 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	sessionID := ensureSessionID(w, r)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	interval := s.interval
-	if interval <= 0 {
-		interval = time.Second
-	}
-	pollTicker := time.NewTicker(interval)
-	defer pollTicker.Stop()
-	keepAliveTicker := time.NewTicker(keepAlive)
-	defer keepAliveTicker.Stop()
+	frames, unsubscribe := s.hub.Subscribe()
+	defer unsubscribe()
+
+	ticker := time.NewTicker(keepAlive)
+	defer ticker.Stop()
 
 	ctx := r.Context()
-	if !s.writeSessionFrame(ctx, w, sessionID) {
-		return
-	}
-	flusher.Flush()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-keepAliveTicker.C:
+		case <-ticker.C:
 			if _, err := fmt.Fprint(w, ":keepalive\n\n"); err != nil {
 				return
 			}
 			flusher.Flush()
-		case <-pollTicker.C:
-			if !s.writeSessionFrame(ctx, w, sessionID) {
+		case state := <-frames:
+			if !s.writeFrame(w, state) {
 				return
 			}
 			flusher.Flush()
 		}
 	}
-}
-
-func (s *Server) writeSessionFrame(ctx context.Context, w http.ResponseWriter, sessionID string) bool {
-	state, err := s.currentState(ctx, sessionID)
-	if err != nil {
-		if ctx.Err() != nil {
-			return false
-		}
-		s.logger.Warn("build SSE frame failed", "sessionId", sessionID, "err", err)
-		return true
-	}
-	return s.writeFrame(w, state)
 }
 
 // writeFrame renders every SSE region for state and writes each as a named SSE
 // event. It returns false if writing to the client fails (connection closed).
 func (s *Server) writeFrame(w http.ResponseWriter, state DashboardState) bool {
+	// The pause switch is server state the poller knows nothing about, so it is
+	// read fresh for every frame. state is a copy: the hub's value is untouched.
+	state.OrdersPaused = s.orderSwitch.Paused()
 	var buf bytes.Buffer
 	for _, region := range sseRegions {
 		buf.Reset()
@@ -213,15 +150,8 @@ func writeSSEEvent(w http.ResponseWriter, event, body string) error {
 // handleDeployModal renders the Deploy modal fragment from the latest state,
 // pre-selecting the Ramping version (else Current, else first) with the ramp
 // slider set to match its status.
-func (s *Server) handleDeployModal(w http.ResponseWriter, r *http.Request) {
-	sessionID := ensureSessionID(w, r)
-	state, err := s.currentState(r.Context(), sessionID)
-	if err != nil {
-		s.logger.Warn("build deploy modal state failed", "sessionId", sessionID, "err", err)
-		s.writeError(w, http.StatusInternalServerError, "Deploy failed: "+err.Error())
-		return
-	}
-	view := buildDeployModalView(state)
+func (s *Server) handleDeployModal(w http.ResponseWriter, _ *http.Request) {
+	view := buildDeployModalView(s.hub.Latest())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.renderer.DeployModal(w, view); err != nil {
 		s.logger.Warn("render deploy modal failed", "err", err)
@@ -242,19 +172,12 @@ func (s *Server) handleRollbackModal(w http.ResponseWriter, _ *http.Request) {
 // the slider moved, so we honor the chosen stop; otherwise a radio changed and
 // we derive the ramp from the selected version's deployment-card status.
 func (s *Server) handleDeployRamp(w http.ResponseWriter, r *http.Request) {
-	sessionID := ensureSessionID(w, r)
 	q := r.URL.Query()
 	var view rampView
 	if stop := q.Get("stop"); stop != "" {
 		view = rampViewForStop(stop)
 	} else {
-		state, err := s.currentState(r.Context(), sessionID)
-		if err != nil {
-			s.logger.Warn("build deploy ramp state failed", "sessionId", sessionID, "err", err)
-			s.writeError(w, http.StatusInternalServerError, "Deploy failed: "+err.Error())
-			return
-		}
-		view = rampViewFor(state, q.Get("version"))
+		view = rampViewFor(s.hub.Latest(), q.Get("version"))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.renderer.DeployRamp(w, view); err != nil {
@@ -269,6 +192,34 @@ func (s *Server) handleDeployRamp(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleClose(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
+}
+
+// handlePause serves PUT /pause: new orders stop being started while in-flight
+// orders carry on. Like handleResume, it answers with an empty 200: the toggle
+// is redrawn by the republished SSE frame, not by this response.
+func (s *Server) handlePause(w http.ResponseWriter, _ *http.Request) {
+	s.orderSwitch.Pause()
+	s.logger.Info("order publishing paused")
+	s.republishLatest()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleResume serves DELETE /pause: the generator starts orders again from
+// its next tick.
+func (s *Server) handleResume(w http.ResponseWriter, _ *http.Request) {
+	s.orderSwitch.Resume()
+	s.logger.Info("order publishing resumed")
+	s.republishLatest()
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+}
+
+// republishLatest pushes the latest state again so every connected browser
+// gets a frame carrying the new pause state (stamped by writeFrame) right away,
+// instead of on the next poll tick.
+func (s *Server) republishLatest() {
+	s.hub.Publish(s.hub.Latest())
 }
 
 // validVersion guards the friendly labels the UI may send.
@@ -320,33 +271,8 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleOrdersPlay(w http.ResponseWriter, r *http.Request) {
-	if s.generator == nil {
-		s.writeError(w, http.StatusInternalServerError, "Order generator is unavailable")
-		return
-	}
-	sessionID := ensureSessionID(w, r)
-	s.generator.Play(sessionID)
-	s.renderControls(w, r, sessionID)
-}
-
-func (s *Server) handleOrdersPause(w http.ResponseWriter, r *http.Request) {
-	if s.generator == nil {
-		s.writeError(w, http.StatusInternalServerError, "Order generator is unavailable")
-		return
-	}
-	sessionID := ensureSessionID(w, r)
-	s.generator.Pause(sessionID)
-	s.renderControls(w, r, sessionID)
-}
-
 func (s *Server) handleRecoverOne(w http.ResponseWriter, r *http.Request) {
-	sessionID := ensureSessionID(w, r)
 	id := r.PathValue("id")
-	if !workflowBelongsToSession(sessionID, id) {
-		s.writeError(w, http.StatusForbidden, "Recover failed: order is not in this session")
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), recoverTimeout)
 	defer cancel()
 	if err := s.actions.RecoverOne(ctx, id); err != nil {

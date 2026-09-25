@@ -19,17 +19,10 @@ import (
 // logged (no silent caps).
 const maxOrdersPerTick = 50
 
-// openOrdersQuery selects open PizzaOrder workflows for one browser session.
-// Results are sorted oldest-first in Go (see OpenOrders) rather than via an
-// ORDER BY clause, because the dev server's standard (SQLite) visibility store
-// does not support ORDER BY.
-func openOrdersQuery(sessionID string) string {
-	return fmt.Sprintf(
-		"WorkflowType = 'PizzaOrder' AND ExecutionStatus = 'Running' AND %s = '%s'",
-		SessionSearchAttribute,
-		sessionID,
-	)
-}
+// openOrdersQuery selects open PizzaOrder workflows. Results are sorted
+// oldest-first in Go (see OpenOrders) rather than via an ORDER BY clause, because
+// the dev server's standard (SQLite) visibility store does not support ORDER BY.
+const openOrdersQuery = "WorkflowType = 'PizzaOrder' AND ExecutionStatus = 'Running'"
 
 // SDKReader implements TemporalReader using the Temporal SDK client.
 type SDKReader struct {
@@ -84,17 +77,13 @@ func (r *SDKReader) DeploymentSnapshot(ctx context.Context) (Routing, []VersionS
 	return routing, summaries, nil
 }
 
-// OpenOrders lists open PizzaOrder workflows for sessionID (capped, oldest
-// first), queries getState on each, and returns them with their pinned Build ID
-// and elapsed time. Orders that cannot be queried yet (e.g. mid-start) are
-// skipped.
-func (r *SDKReader) OpenOrders(ctx context.Context, sessionID string) ([]LiveOrder, error) {
-	if !validSessionID(sessionID) {
-		return nil, fmt.Errorf("invalid session ID %q", sessionID)
-	}
+// OpenOrders lists open PizzaOrder workflows (capped, oldest first), queries
+// getState on each, and returns them with their pinned Build ID and elapsed time.
+// Orders that cannot be queried yet (e.g. mid-start) are skipped.
+func (r *SDKReader) OpenOrders(ctx context.Context) ([]LiveOrder, error) {
 	// Namespace is left empty: the SDK fills it from the client's configuration.
 	resp, err := r.c.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-		Query:    openOrdersQuery(sessionID),
+		Query:    openOrdersQuery,
 		PageSize: maxOrdersPerTick,
 	})
 	if err != nil {

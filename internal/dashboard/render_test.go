@@ -23,11 +23,11 @@ func buildFixture() dashboard.DashboardState {
 	orders := []dashboard.LiveOrder{
 		{WorkflowID: "order-1", BuildID: "b2", ElapsedSec: 72, State: pizza.OrderState{
 			Version: "v2", Pizza: "Pepperoni",
-			Steps: pizza.StepsFor(pizza.V2), CurrentStep: 1,
+			Steps: v2Steps, CurrentStep: 1,
 		}},
 		{WorkflowID: "order-2", BuildID: "b3", ElapsedSec: 130, State: pizza.OrderState{
 			Version: "v3", Pizza: "Diavola",
-			Steps: pizza.StepsFor(pizza.V3), CurrentStep: 3, Failing: true,
+			Steps: v3Steps, CurrentStep: 3, Failing: true,
 		}},
 	}
 	return dashboard.BuildState(routing, summaries, orders)
@@ -60,6 +60,11 @@ func TestRendererRegions(t *testing.T) {
 			"1:12",               // order-1 elapsed (72s)
 			`class="order fail"`, // failing card styling (the red card is the failing cue)
 			`node err`,           // errored stepper node
+			// Illustrations and icons reference the index.html sprite by symbol id.
+			`<use href="#pizza-pepperoni"/>`, `<use href="#pizza-diavola"/>`,
+			`<use href="#step-cook"/>`,
+			`node cur step-cook`,  // current-step motion targets the step-* modifier class
+			`node err step-drone`, // v3 order stuck on its drone step
 		}},
 		{"versions", []string{
 			`vb b-v1`, `vb b-v2`, `vb b-v3`,
@@ -89,6 +94,82 @@ func TestRendererRegions(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Errorf("region %q output missing %q\n--- output ---\n%s", tt.region, want, out)
 				}
+			}
+		})
+	}
+}
+
+func TestRendererPublishing(t *testing.T) {
+	r, err := dashboard.NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		paused  bool
+		want    []string
+		notWant []string
+	}{
+		{
+			name:   "running offers pause",
+			paused: false,
+			want: []string{
+				`id="publishing-toggle"`, // stable id lets idiomorph morph the button in place
+				"Pause orders", `hx-put="/pause"`, `aria-pressed="false"`,
+			},
+			notWant: []string{"Resume orders", `hx-delete="/pause"`, `class="pub-btn paused"`},
+		},
+		{
+			name:   "paused offers resume",
+			paused: true,
+			want: []string{
+				`id="publishing-toggle"`,
+				"Resume orders", `hx-delete="/pause"`, `aria-pressed="true"`, `class="pub-btn paused"`,
+			},
+			notWant: []string{"Pause orders", `hx-put="/pause"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := render(t, r, "publishing", dashboard.DashboardState{OrdersPaused: tt.paused})
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("publishing output missing %q\n--- output ---\n%s", want, out)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(out, notWant) {
+					t.Errorf("publishing output should not contain %q\n--- output ---\n%s", notWant, out)
+				}
+			}
+		})
+	}
+}
+
+func TestRendererOrdersPausedEmptyState(t *testing.T) {
+	r, err := dashboard.NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer: %v", err)
+	}
+	withOrders := buildFixture().Orders
+
+	tests := []struct {
+		name      string
+		state     dashboard.DashboardState
+		wantShown bool
+	}{
+		{"paused with no orders", dashboard.DashboardState{OrdersPaused: true}, true},
+		{"paused with orders", dashboard.DashboardState{OrdersPaused: true, Orders: withOrders}, false},
+		{"running with no orders", dashboard.DashboardState{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := render(t, r, "orders", tt.state)
+			got := strings.Contains(out, `id="orders-paused"`) && strings.Contains(out, "Order publishing is paused.") &&
+				strings.Contains(out, `<use href="#pizza-box-sleeping"/>`)
+			if got != tt.wantShown {
+				t.Errorf("paused empty state shown = %v, want %v\n--- output ---\n%s", got, tt.wantShown, out)
 			}
 		})
 	}

@@ -1,12 +1,13 @@
 // Command backend serves the Pizza Tracker SPA and its API.
 //
-// It reads Temporal for the worker-deployment routing state and each browser
-// session's live orders, streams updates to the browser over SSE, generates
-// session-scoped orders, and translates rollout actions (ramp, promote,
-// rollback, recover) into Temporal API calls.
+// It polls Temporal for the worker-deployment routing state and the live
+// orders, streams updates to the browser over SSE, generates a steady stream of
+// orders, and translates rollout actions (ramp, promote, rollback, recover)
+// into Temporal API calls.
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -25,11 +26,11 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	addr := "0.0.0.0:" + getenv("PORT", "8080")
-	temporalAddress := getenv("TEMPORAL_ADDRESS", "127.0.0.1:7233")
-	namespace := getenv("TEMPORAL_NAMESPACE", "default")
-	deploymentName := getenv("TEMPORAL_DEPLOYMENT_NAME", "pizza")
-	taskQueue := getenv("PIZZA_TASK_QUEUE", pizza.TaskQueue)
+	addr := "0.0.0.0:" + cmp.Or(os.Getenv("PORT"), "8080")
+	temporalAddress := cmp.Or(os.Getenv("TEMPORAL_ADDRESS"), "127.0.0.1:7233")
+	namespace := cmp.Or(os.Getenv("TEMPORAL_NAMESPACE"), "default")
+	deploymentName := cmp.Or(os.Getenv("TEMPORAL_DEPLOYMENT_NAME"), "pizza")
+	taskQueue := cmp.Or(os.Getenv("PIZZA_TASK_QUEUE"), pizza.TaskQueue)
 	pollInterval := durEnv("PIZZA_POLL_INTERVAL", time.Second, logger)
 	orderInterval := durEnv("PIZZA_ORDER_INTERVAL", 6*time.Second, logger)
 
@@ -48,25 +49,27 @@ func main() {
 	}
 	defer c.Close()
 
+	hub := dashboard.NewHub()
 	// One shared label resolver so the buildID→label cache is not duplicated
 	// between the reader and the actions.
 	labels := dashboard.NewLabelResolver(c, deploymentName, logger)
 	reader := dashboard.NewSDKReader(c, deploymentName, labels, logger)
-	generatorControl := dashboard.NewSessionGeneratorManager()
+	poller := dashboard.NewPoller(reader, pollInterval, logger, hub.Publish)
 	actions := dashboard.NewActions(c, deploymentName, namespace, labels, logger)
 	// Seed startID from the wall clock so order IDs do not reset to order-1 on
 	// every restart and collide with a still-open order from the previous run.
 	// This is backend/client code (not workflow code), so using the clock is fine.
-	gen := dashboard.NewGenerator(c, taskQueue, orderInterval, int(time.Now().Unix()), generatorControl, logger)
+	gen := dashboard.NewGenerator(c, taskQueue, orderInterval, int(time.Now().Unix()), logger)
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           dashboard.NewServer(nil, actions, reader, renderer, frontend.Assets, generatorControl, pollInterval, logger).Routes(),
+		Handler:           dashboard.NewServer(hub, actions, gen, renderer, frontend.Assets, logger).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	go poller.Run(ctx)
 	go gen.Run(ctx)
 	go actions.EnsureCurrentVersion(ctx, pollInterval)
 	go func() {
@@ -85,13 +88,6 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown failed", "err", err)
 	}
-}
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func durEnv(key string, fallback time.Duration, logger *slog.Logger) time.Duration {

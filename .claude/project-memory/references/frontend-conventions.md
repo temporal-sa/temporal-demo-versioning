@@ -1,6 +1,6 @@
 ---
 name: "Frontend conventions and gotchas"
-description: "Non-derivable frontend directives and traps: Tailwind compiled ahead of time (build step -> app.css), zero JS (HTMX only), hypermedia URLs (never /api/), the @media-can't-@apply trap, morph-not-replace, 200-not-204, no per-version failure count"
+description: "Non-derivable frontend directives, visual theme and traps: no build / Tailwind Play CDN, zero JS (HTMX only), hypermedia URLs (never /api/), the @media-can't-@apply trap, morph-not-replace, 200-not-204, no per-version failure count"
 type: feedback
 ---
 
@@ -11,20 +11,10 @@ in `frontend/index.html` and the Go templates and is self-describing.
 
 **Directives (intent, not visible from the code):**
 
-- **Tailwind is compiled ahead of time (build step).** The styling source is
-  `frontend/input.css` (`@import "tailwindcss"` + `@theme` tokens + the `@apply`
-  component classes + the raw `@media` blocks); it compiles to `frontend/app.css`,
-  served as a static `<link rel="stylesheet" href="/app.css">` and embedded via
-  `embed.go`. The `css` stage in `Dockerfile.backend` (`node:22-slim`,
-  `npm install --no-save tailwindcss@4.3.1 @tailwindcss/cli@4.3.1`, run the local
-  `tailwindcss` binary) rebuilds `app.css` from source on every image build, so
-  production never trusts a stale file; `make css` regenerates it locally and the
-  committed `app.css` lets `go build`/`go:embed` work without Node. The Play CDN
-  (`@tailwindcss/browser`) was dropped: it is dev-only and compiles in the browser
-  at runtime, which left the page unstyled on cache/navigation load paths (FOUC)
-  until a force-refresh. Note `@tailwindcss/cli` alone does **not** resolve
-  `@import "tailwindcss"` — the `tailwindcss` engine package must also be installed
-  on the resolution path.
+- **No build step.** Tailwind comes via the Play CDN (`@tailwindcss/browser@4`),
+  which only processes `<style type="text/tailwindcss">`, so all styling lives in
+  the single `<style>` block in `index.html`. Do **not** add a Node/PostCSS build
+  or an external `.css`; if one is truly needed, surface the trade-off first.
 - **Zero application JavaScript — all interactivity is HTMX.** SSE pushes
   server-rendered HTML (not JSON). No `<script>` block, no
   `onclick`/`oninput`/`hx-on` (only the head's CDN `<script src>` includes). Wire
@@ -33,8 +23,9 @@ in `frontend/index.html` and the Go templates and is self-describing.
   HTML fragments, not JSON, so per HTMX's own guidance they deliberately avoid
   the `/api/` prefix (which signals a stable JSON *data* API) and are named after
   the resource + UI need: `GET`/`POST /deploy`, `GET /deploy/ramp`,
-  `GET`/`POST /rollback`, `POST /orders/{id}/recover`, and the modal is closed
-  with `DELETE /modal` (a resource delete, not a generic `/close` verb).
+  `GET`/`POST /rollback`, `POST /orders/{id}/recover`, the modal is closed
+  with `DELETE /modal` (a resource delete, not a generic `/close` verb), and
+  order publishing is paused with `PUT /pause` and resumed with `DELETE /pause`.
   `GET /events` (SSE), `GET /healthz` and `/` (the SPA) are unchanged. When
   adding an endpoint, follow this scheme — do **not** reintroduce `/api/`.
 - **No per-version failure count.** Version cards show only `N in flight`. Every
@@ -45,8 +36,7 @@ in `frontend/index.html` and the Go templates and is self-describing.
 
 **Traps (each cost real debugging time):**
 
-- **`@media`-based variants do NOT compile via `@apply`** (a Tailwind `@apply`
-  limitation, not Play-CDN-specific — it still holds under the CLI build).
+- **`@media`-based variants do NOT compile via `@apply` in the Play CDN.**
   `@apply max-[760px]:…` and `prefers-reduced-motion:…` emit *nothing* — keep
   responsive and reduced-motion rules as raw `@media` blocks. Non-media
   selectors (`:hover`, `:has`, `:not`), arbitrary-property utilities and
@@ -71,5 +61,11 @@ in `frontend/index.html` and the Go templates and is self-describing.
 - **HTMX won't swap on 204.** Modal-close / fragment-clear endpoints must return
   an **empty 200**, not 204, or the modal stays open.
 
-The theme follows [temporal.io/brand](https://temporal.io/brand): UV `#444ce7` is
-the accent and v1, v2 = green, v3 = amber (amber also = ramping).
+The look is a temporal.io-inspired violet space theme: deep violet background
+with radial glows and grid + stars overlays, Space Grotesk + IBM Plex Mono
+(mono for small labels), violet `#8B5CF6` UI accent, lime `#B6F35A` success,
+slate-blue `#7C8FB1`, glass cards (`white/4%` fill, `white/10%` border, blur).
+Version colours are fixed and independent of that palette, because the demo's
+colour-coding depends on them: v1 = UV `#444ce7`, v2 = green, v3 = amber (amber
+also = ramping). Order cards carry inline-SVG pizza illustrations and stepper
+step icons from a single `<symbol>` sprite in `index.html`.

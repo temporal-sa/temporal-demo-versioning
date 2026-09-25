@@ -13,31 +13,22 @@ type TemporalReader interface {
 	DeploymentSnapshot(ctx context.Context) (Routing, []VersionSummary, error)
 	// OpenOrders lists open PizzaOrder workflows, queries getState on each, and
 	// returns them with their pinned Build ID and elapsed time.
-	OpenOrders(ctx context.Context, sessionID string) ([]LiveOrder, error)
+	OpenOrders(ctx context.Context) ([]LiveOrder, error)
 }
 
 // Poller periodically snapshots Temporal and publishes a DashboardState.
 type Poller struct {
-	reader          TemporalReader
-	interval        time.Duration
-	sessionID       string
-	generatorStatus func(string) GeneratorStatus
-	logger          *slog.Logger
-	publish         func(DashboardState)
+	reader   TemporalReader
+	interval time.Duration
+	logger   *slog.Logger
+	publish  func(DashboardState)
 }
 
 // NewPoller builds a Poller that publishes a fresh DashboardState every interval.
 func NewPoller(r TemporalReader, interval time.Duration, logger *slog.Logger,
-	publish func(DashboardState), sessionID string, generatorStatus func(string) GeneratorStatus,
+	publish func(DashboardState),
 ) *Poller {
-	return &Poller{
-		reader:          r,
-		interval:        interval,
-		sessionID:       sessionID,
-		generatorStatus: generatorStatus,
-		logger:          logger,
-		publish:         publish,
-	}
+	return &Poller{reader: r, interval: interval, logger: logger, publish: publish}
 }
 
 // Run polls until ctx is cancelled. On each tick it builds and publishes state;
@@ -61,14 +52,10 @@ func (p *Poller) tick(ctx context.Context) {
 		p.logger.Warn("deployment snapshot failed", "err", err)
 		return
 	}
-	orders, err := p.reader.OpenOrders(ctx, p.sessionID)
+	orders, err := p.reader.OpenOrders(ctx)
 	if err != nil {
 		p.logger.Warn("open orders fetch failed", "err", err)
 		return
 	}
-	state := BuildState(routing, summaries, orders)
-	if p.generatorStatus != nil {
-		state.Generator = p.generatorStatus(p.sessionID)
-	}
-	p.publish(state)
+	p.publish(BuildState(routing, summaries, orders))
 }

@@ -12,8 +12,8 @@
       href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%3E%3Cg%20fill=%22%23e8923a%22%20stroke=%22%23f4c542%22%20stroke-width=%221.4%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M12%2012L20.5%2012A8.5%208.5%200%201%201%2012%203.5Z%22/%3E%3Cpath%20d=%22M14.4%209.6L14.4%201.1A8.5%208.5%200%200%201%2022.9%209.6Z%22/%3E%3C/g%3E%3Cg%20fill=%22%23c0392b%22%3E%3Ccircle%20cx=%2215.5%22%20cy=%2215.5%22%20r=%221.05%22/%3E%3Ccircle%20cx=%228.5%22%20cy=%2215.5%22%20r=%221.05%22/%3E%3Ccircle%20cx=%228.5%22%20cy=%228.5%22%20r=%221.05%22/%3E%3Ccircle%20cx=%2211%22%20cy=%2213.5%22%20r=%221.05%22/%3E%3Ccircle%20cx=%2216.8%22%20cy=%227.2%22%20r=%221.05%22/%3E%3Ccircle%20cx=%2215%22%20cy=%229.3%22%20r=%221.05%22/%3E%3C/g%3E%3C/svg%3E"
     />
 
-    <!-- Tailwind CSS compiled ahead of time at image build, served as a static stylesheet. -->
-    <link rel="stylesheet" href="/app.css" />
+    <!-- Tailwind CSS v4 (Play CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
     <!-- HTMX core + SSE and response-targets extensions (current stable 2.x) -->
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2"></script>
@@ -22,49 +22,1208 @@
     <!-- Idiomorph htmx extension (pre-1.0 → floating @0); registers the "morph" swap. -->
     <script src="https://cdn.jsdelivr.net/npm/idiomorph@0/dist/idiomorph-ext.min.js"></script>
 
-    <!-- Brand type: Hanken Grotesk (geometric grotesque close to Temporal's Aeonik). -->
+    <!-- Type: Space Grotesk for display and body text, IBM Plex Mono for small
+         labels, ids, chips and buttons. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    
     <link
-      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <!--
+      Single styling source for the app. Everything is expressed with Tailwind
+      utilities (via @apply on semantic component classes; the Go templates stay
+      dumb and reuse those class names). The theme is a violet "space" look
+      inspired by temporal.io: a deep violet gradient sky with faint stars and a
+      fading grid, glass cards, violet as the UI accent, lime for success,
+      Space Grotesk + IBM Plex Mono type. The version colours (v1 UV, v2 green,
+      v3 amber) are fixed by the demo's colour coding.
+      Only what cannot be a utility stays raw CSS: @theme token definitions,
+      @keyframes, @property, the layered page backgrounds, the media queries,
+      and the stepper and button-ring pseudo-elements (the progress fill is a
+      calc() driven by live --fill).
+      Illustrations and icons are <symbol>s of the inline SVG sprite at the top
+      of <body>; the templates reference them with <use href="#…">.
+    -->
+    <style type="text/tailwindcss">
+      @theme {
+        /* ===== Palette =====
+           Violet is the UI accent (focus, current step, primary action), lime
+           marks success (done steps, live dot) and slateb tints secondary text.
+           The version colours are the demo's colour coding: v1 = Temporal UV,
+           v2 = green, v3 = amber (amber also = ramping); red = error. Exposed
+           as color tokens so utilities (bg-*, text-*, border-*) and
+           var(--color-*) references both resolve. */
+        --color-base: #0c0a1b; /* page background under the gradients */
+        --color-ink: #e5e5e5; /* body text */
+        --color-violet: #8b5cf6; /* UI accent */
+        --color-lime: #b6f35a; /* success */
+        --color-slateb: #7c8fb1; /* secondary text, eyebrow captions */
+
+        --color-uv: #444ce7; /* Temporal UV — v1 */
+        --color-green: #16a34a; /* v2 */
+        --color-amber: #d97706; /* v3 + ramping */
+        --color-red: #dc2626; /* error */
+
+        /* Shared content max width (max-w-app): the header content and the body
+           columns use the same cap so their edges line up on wide screens. */
+        --container-app: 64rem;
+
+        /* Space Grotesk for text, IBM Plex Mono for labels; system fallbacks. */
+        --font-sans: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+        /* Animations (each maps to an animate-* utility). */
+        --animate-cur-pulse: cur-pulse 1.5s ease-out infinite;
+        --animate-errp: errp 1.2s infinite;
+        --animate-card-in: card-in 0.35s ease backwards;
+        --animate-card-collapse: card-collapse 0.5s ease 4s forwards;
+        --animate-toast-out: toast-out 4s ease forwards;
+        --animate-chip-pulse: chip-pulse 0.45s ease;
+        --animate-live-dot: live-dot 1.6s ease-out infinite;
+        --animate-title-shift: title-shift 6s linear infinite;
+        --animate-btn-spin: btn-spin 2.5s linear infinite;
+        --animate-pizza-spin: pizza-spin 8s linear infinite;
+        --animate-flame-flicker: flame-flicker 0.9s ease-in-out infinite alternate;
+        --animate-scooter-bob: scooter-bob 1.4s ease-in-out infinite alternate;
+        --animate-drone-hover: drone-hover 1.8s ease-in-out infinite alternate;
+        --animate-drone-shake: drone-shake 1.4s ease-in-out infinite;
+
+        /* Violet ring around the current stepper node. */
+        @keyframes cur-pulse {
+          0% {
+            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6);
+          }
+          70% {
+            box-shadow: 0 0 0 10px rgba(139, 92, 246, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+          }
+        }
+
+        @keyframes errp {
+          0% {
+            box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6);
+          }
+          70% {
+            box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+          }
+        }
+
+        /* Lime ring around the order-publishing toggle's "live" dot. */
+        @keyframes live-dot {
+          0% {
+            box-shadow: 0 0 0 0 rgba(182, 243, 90, 0.6);
+          }
+          70% {
+            box-shadow: 0 0 0 5px rgba(182, 243, 90, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(182, 243, 90, 0);
+          }
+        }
+
+        @keyframes toast-out {
+          0%,
+          90% {
+            opacity: 1;
+          }
+          100% {
+            opacity: 0;
+          }
+        }
+
+        @keyframes chip-pulse {
+          0% {
+            transform: scale(1.18);
+            filter: brightness(1.5);
+          }
+          100% {
+            transform: scale(1);
+            filter: brightness(1);
+          }
+        }
+
+        @keyframes card-in {
+          from {
+            opacity: 0;
+            transform: translateY(6px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes card-collapse {
+          to {
+            max-height: 0;
+            margin-bottom: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            border-width: 0;
+            opacity: 0;
+            filter: grayscale(1);
+          }
+        }
+
+        /* Title gradient sweep; its first and last stops match, so the loop is
+           seamless. */
+        @keyframes title-shift {
+          to {
+            background-position: -200% center;
+          }
+        }
+
+        /* Primary button ring: spins the conic gradient's start angle. */
+        @keyframes btn-spin {
+          to {
+            --btn-angle: 360deg;
+          }
+        }
+
+        /* Order card pizza: one slow turn while the order is in progress. */
+        @keyframes pizza-spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        /* Current-step icon micro-motions (Cook, Out, Drone) and the shake of
+           a drone stuck on its failing step. Kept to a pixel or two. */
+        @keyframes flame-flicker {
+          from {
+            transform: scale(1);
+            opacity: 1;
+          }
+          to {
+            transform: scale(1.1, 1.18);
+            opacity: 0.8;
+          }
+        }
+
+        @keyframes scooter-bob {
+          from {
+            transform: translate(-1px, 0);
+          }
+          to {
+            transform: translate(1px, -1px);
+          }
+        }
+
+        @keyframes drone-hover {
+          from {
+            transform: translateY(1px);
+          }
+          to {
+            transform: translateY(-1.5px);
+          }
+        }
+
+        @keyframes drone-shake {
+          0%,
+          50%,
+          100% {
+            transform: translateX(0) rotate(0);
+          }
+          10% {
+            transform: translateX(-1.5px) rotate(-8deg);
+          }
+          20% {
+            transform: translateX(1.5px) rotate(8deg);
+          }
+          30% {
+            transform: translateX(-1px) rotate(-5deg);
+          }
+          40% {
+            transform: translateX(1px) rotate(5deg);
+          }
+        }
+      }
+
+      /* Registered so the button ring's conic-gradient angle can animate. */
+      @property --btn-angle {
+        syntax: "<angle>";
+        initial-value: 0deg;
+        inherits: false;
+      }
+
+      * {
+        @apply box-border;
+      }
+
+      html {
+        @apply [color-scheme:dark];
+      }
+
+      html,
+      body {
+        @apply m-0 h-full;
+      }
+
+      body {
+        @apply text-ink font-sans antialiased;
+      }
+
+      /* ===== Space backdrop =====
+         Two violet glows over the base colour, fixed to the viewport, plus two
+         fixed decorative layers behind the app: faint stars and a perspective
+         grid (temporal.io-inspired). Layered backgrounds and the mask stay raw
+         CSS. */
+      body {
+        background:
+          radial-gradient(1200px 500px at 70% -10%, #3b2e8f55, transparent 60%),
+          radial-gradient(900px 600px at 10% 0%, #201457, transparent 55%),
+          var(--color-base);
+        background-attachment: fixed;
+      }
+
+      .stars,
+      .grid-overlay {
+        @apply pointer-events-none fixed inset-0;
+      }
+
+      .stars {
+        background-image:
+          radial-gradient(1px 1px at 20% 30%, #fff6, transparent),
+          radial-gradient(1px 1px at 70% 20%, #fff5, transparent),
+          radial-gradient(1px 1px at 40% 70%, #fff4, transparent),
+          radial-gradient(1px 1px at 85% 60%, #fff5, transparent),
+          radial-gradient(1px 1px at 55% 45%, #fff3, transparent);
+      }
+
+      /* Grid layer: a temporal.io-inspired perspective grid, fading out from
+         mid-page so the bottom of the viewport stays clean. The perspective is
+         precomputed into a static SVG (drawn at 1:1 on a 900px-tall viewport,
+         bottom-anchored and cropped by the "slice" aspect ratio) because
+         WebKit does not reliably paint large 3D-transformed layers. */
+      .grid-overlay {
+        -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent 85%);
+        mask-image: linear-gradient(to bottom, #000 45%, transparent 85%);
+      }
+
+      .grid-overlay svg {
+        @apply block size-full;
+      }
+
+      /* The SVG sprite only holds <symbol>s: keep it out of layout without
+         display:none, so every browser still resolves the <use> references. */
+      .sprite {
+        @apply absolute size-0 overflow-hidden;
+      }
+
+      /* ===== App shell =====
+         The header border stays full-bleed, while its content (.top-in) and the
+         body (.dbody) are centered at the shared max-w-app width. Both use the
+         same 18px side padding, so the logo and attribution line up with the
+         column edges. The shell is transparent so the backdrop shows through;
+         relative keeps it above the fixed decorative layers. */
+      .app {
+        @apply relative flex h-dvh flex-col overflow-hidden;
+      }
+
+      .top {
+        @apply shrink-0 border-b border-white/10 bg-white/[0.02] backdrop-blur-sm;
+      }
+
+      .top-in {
+        @apply mx-auto flex w-full max-w-app items-center gap-3 px-[18px] py-4;
+      }
+
+      /* Title links to the home page; reset the anchor's default underline and
+         color. */
+      .top .logo {
+        @apply flex items-center gap-2.5 no-underline;
+      }
+
+      .top .logo .logo-icon {
+        @apply shrink-0;
+      }
+
+      /* Sweeping violet → blue → lime gradient across the title text. */
+      .top .logo .logo-text {
+        @apply animate-title-shift bg-[linear-gradient(90deg,#8b5cf6,#5b7cfa,#b6f35a,#5b7cfa,#8b5cf6)]
+          bg-[length:200%_auto] bg-clip-text text-[22px] font-semibold leading-none tracking-tight text-transparent;
+      }
+
+      /* Right-aligned "powered by" eyebrow caption + Temporal logo lockup. */
+      .top .attribution {
+        @apply ml-auto flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.25em] text-slateb;
+      }
+
+      /* The logo links to temporal.io; inline-flex keeps the block img
+         vertically centered (no inline line-height gap). */
+      .top .attribution a {
+        @apply inline-flex items-center;
+      }
+
+      .top .attribution img {
+        @apply block h-8 w-auto;
+      }
+
+      /* Read-only ramp percentage shown live in the Deploy modal (amber accent). */
+      .pct {
+        @apply font-mono font-semibold text-amber;
+      }
+
+      /* ===== Body: two flex columns =====
+         Centered max-w-app row: a flexible orders column (.dleft) and a
+         deployment column (.dright) that is 360px on desktop and shrinks to
+         300px on tablet widths so the orders column keeps room. Both are
+         transparent over the backdrop, with no divider between them. Stacks
+         on mobile. */
+      .dbody {
+        @apply mx-auto flex min-h-0 w-full max-w-app flex-1;
+      }
+
+      .dleft {
+        @apply flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-[18px] py-5 [scrollbar-gutter:stable];
+      }
+
+      .dright {
+        @apply min-h-0 w-[clamp(300px,36%,360px)] min-w-0 shrink-0 overflow-y-auto px-[18px] py-5
+          [scrollbar-gutter:stable];
+      }
+
+      .sect {
+        @apply mb-[13px] flex font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-500;
+      }
+
+      .sect .count {
+        @apply ml-auto font-semibold;
+      }
+
+      /* Live orders header: the .sect label plus the order-publishing toggle
+         pushed right. Its negative vertical margin keeps the row as tall as a
+         bare .sect, so both columns' first cards line up. */
+      .sect-row {
+        @apply mb-[13px] flex items-center gap-3;
+      }
+
+      .sect-row .sect {
+        @apply mb-0;
+      }
+
+      .publishing {
+        @apply -my-1.5 ml-auto flex;
+      }
+
+      /* Mono pill with a tinted border: running = pulsing lime dot; paused =
+         amber with a static pause glyph. Disables itself while its request
+         runs. */
+      .pub-btn {
+        @apply inline-flex cursor-pointer items-center gap-2 rounded-full border border-slateb/25 bg-white/5 px-3
+          py-1 font-mono text-[11px] leading-none text-neutral-100 backdrop-blur-sm transition-colors;
+      }
+
+      .pub-btn:hover:not(:disabled) {
+        @apply bg-white/10;
+      }
+
+      .pub-btn:disabled {
+        @apply cursor-progress opacity-60;
+      }
+
+      .pub-dot {
+        @apply size-1.5 shrink-0 animate-live-dot rounded-full bg-lime;
+      }
+
+      .pub-btn.paused {
+        @apply border-amber-400/30 bg-amber-400/10 text-amber-300;
+      }
+
+      .pub-btn.paused:hover:not(:disabled) {
+        @apply bg-amber-400/20;
+      }
+
+      /* Pause glyph: two vertical bars drawn by the side borders. */
+      .pub-btn.paused .pub-dot {
+        @apply h-2 w-[7px] animate-none rounded-none border-x-2 border-amber-300 bg-transparent;
+      }
+
+      /* Keyboard focus: a violet ring on every control (the primary button
+         shows its gradient ring instead). */
+      .pub-btn:focus-visible,
+      .recover-btn:focus-visible,
+      .btn:focus-visible,
+      .radio:has(input:focus-visible) {
+        @apply outline-2 outline-offset-2 outline-violet;
+      }
+
+      /* ===== Live orders list ===== */
+      .olist {
+        @apply shrink-0;
+      }
+
+      /* Shown in place of the cards while publishing is paused and none remain:
+         a dashed glass panel with a sleeping pizza box above the message. */
+      .orders-empty {
+        @apply flex flex-col items-center gap-3 rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-10
+          text-center text-sm text-neutral-500;
+      }
+
+      .orders-empty p {
+        @apply m-0;
+      }
+
+      .orders-empty-art {
+        @apply h-12 w-16 fill-none stroke-slateb stroke-[1.6] [stroke-linecap:round] [stroke-linejoin:round];
+      }
+
+      /* Mobile (<=760px): the whole app scrolls and the columns stack with the
+         deployment panel on top. @apply cannot emit media queries in the Play
+         CDN, so these responsive overrides stay as raw CSS. */
+      @media (max-width: 760px) {
+        .app {
+          overflow-y: auto;
+        }
+
+        .dbody {
+          flex-direction: column;
+          overflow: visible;
+        }
+
+        .dleft {
+          overflow: visible;
+        }
+
+        .dright {
+          width: auto;
+          order: -1;
+          overflow: visible;
+          scrollbar-gutter: auto;
+        }
+
+        /* Pizza name hidden on small screens to keep the header compact. */
+        .oh .nm {
+          display: none;
+        }
+
+        /* Attribution text hidden on small screens; the Temporal logo stays. */
+        .top .attribution span {
+          display: none;
+        }
+      }
+
+      /* ===== Version badges + status chips ===== */
+      .vb {
+        @apply rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold text-white;
+      }
+
+      .b-v1 {
+        @apply bg-uv;
+      }
+
+      .b-v2 {
+        @apply bg-green;
+      }
+
+      .b-v3 {
+        @apply bg-amber;
+      }
+
+      /* Status chips: mono pills with a tinted border and background. */
+      .chip {
+        @apply rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-medium tracking-wide
+          animate-chip-pulse;
+      }
+
+      .c-cur {
+        @apply border-violet/40 bg-violet/15 text-violet-300;
+      }
+
+      .c-ramp {
+        @apply border-amber/50 bg-amber/15 text-amber-300;
+      }
+
+      .c-drain {
+        @apply border-slateb/30 bg-slateb/10 text-slateb;
+      }
+
+      .c-inact {
+        @apply border-white/10 bg-white/5 text-neutral-400;
+      }
+
+      /* ===== Order card + stepper ===== */
+      /* Glass card; hover only tints the border violet — no lift, no shadow.
+         max-h is the start of the Done collapse: it sits just above the tallest
+         card (~150px, with a wrapped header on phones) so the height starts
+         shrinking as soon as the card fades, instead of leaving a blank block. */
+      .order {
+        @apply mb-3 max-h-[220px] animate-card-in rounded-xl border border-white/10 bg-white/[0.04] p-[14px_16px]
+          backdrop-blur-sm transition-[border-color,background-color] duration-[180ms];
+      }
+
+      .order:hover {
+        @apply border-violet/40;
+      }
+
+      /* Failing order: red-tinted glass, keeping its red identity on hover. */
+      .order.fail {
+        @apply border-red/40 bg-red/[0.07];
+      }
+
+      .order.fail:hover {
+        @apply border-red/70;
+      }
+
+      /* Done → visible-then-collapse with no JS: full for 4s, then card-collapse
+         shrinks height + bottom margin to 0 so cards below glide up. */
+      .order.done {
+        @apply animate-card-collapse overflow-hidden;
+      }
+
+      .oh {
+        @apply mb-4 flex flex-wrap items-center gap-2 text-[13px];
+      }
+
+      .oh b {
+        @apply font-mono font-medium text-neutral-100;
+      }
+
+      .oh .nm {
+        @apply text-neutral-400;
+      }
+
+      .oh .el {
+        @apply ml-auto font-mono text-[11px] text-slateb;
+      }
+
+      /* Pizza illustration (natural colours): turns slowly while the order is
+         in progress, and freezes where it stands once the order fails or is
+         delivered. */
+      .oh .pz {
+        @apply size-7 shrink-0 animate-pizza-spin;
+      }
+
+      .order.fail .pz {
+        @apply opacity-75 grayscale-[0.6] [animation-play-state:paused];
+      }
+
+      .order.done .pz {
+        @apply drop-shadow-[0_0_6px_rgba(182,243,90,0.6)] [animation-play-state:paused];
+      }
+
+      /* Per-card recover action: an amber mono pill shown on a failing order
+         just right of the version badge. Disables itself while its request
+         runs. */
+      .recover-btn {
+        @apply inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full border
+          border-amber-400/40 bg-amber-400/10 px-2.5 py-0.5 font-mono text-[11px] font-medium leading-none
+          text-amber-300 transition-colors;
+      }
+
+      .recover-btn:hover:not(:disabled) {
+        @apply bg-amber-400/20;
+      }
+
+      .recover-btn:disabled {
+        @apply cursor-progress opacity-60;
+      }
+
+      /* Reserve vertical room (pb) for the absolutely-positioned labels. */
+      .stepper {
+        @apply relative flex justify-between pb-[18px];
+      }
+
+      /* Connector track + progress fill — pseudo-elements centred on the 28px
+         dots; the fill width is a calc() driven by the live --fill custom
+         property, so these stay raw CSS. */
+      .stepper::before,
+      .stepper::after {
+        content: "";
+        position: absolute;
+        top: 12.5px;
+        left: 14px;
+        height: 3px;
+        border-radius: 2px;
+      }
+
+      .stepper::before {
+        right: 14px;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .stepper::after {
+        width: calc((100% - 28px) * var(--fill, 0) / 100);
+        background: var(--color-lime);
+        transition: width 0.6s ease;
+      }
+
+      .node {
+        @apply relative z-[1] flex flex-none flex-col items-center;
+      }
+
+      /* The pending dot is opaque so the connector track does not show through. */
+      .dot {
+        @apply flex size-7 items-center justify-center rounded-full border-2 border-white/15 bg-[#16132c]
+          text-neutral-500 transition-colors duration-[400ms];
+      }
+
+      /* Step icons are line art drawn in the dot's text colour. */
+      .dot svg {
+        @apply size-4 fill-none stroke-current stroke-2 [stroke-linecap:round] [stroke-linejoin:round];
+      }
+
+      .lbl {
+        @apply absolute left-1/2 top-full mt-[7px] w-max max-w-[84px] -translate-x-1/2 text-center font-mono
+          text-[10px] leading-[1.1] text-neutral-600 transition-colors duration-[400ms];
+      }
+
+      .node.done .dot {
+        @apply border-lime bg-lime text-[#0c0a1b];
+      }
+
+      .node.done .lbl {
+        @apply text-lime/80;
+      }
+
+      .node.cur .dot {
+        @apply animate-cur-pulse border-violet bg-violet text-white;
+      }
+
+      .node.cur .lbl {
+        @apply font-medium text-violet;
+      }
+
+      /* Per-step micro-motion on the current node's icon; the step-* modifier
+         class is the icon's sprite id, set by the template. */
+      .node.cur.step-cook .dot svg {
+        @apply origin-bottom animate-flame-flicker;
+      }
+
+      .node.cur.step-out .dot svg {
+        @apply animate-scooter-bob;
+      }
+
+      .node.cur.step-drone .dot svg {
+        @apply animate-drone-hover;
+      }
+
+      .node.err .dot {
+        @apply animate-errp border-red bg-red text-white;
+      }
+
+      .node.err .lbl {
+        @apply font-medium text-red-400;
+      }
+
+      .node.err.step-drone .dot svg {
+        @apply animate-drone-shake;
+      }
+
+      /* Reduced motion: disable smoothing/entry; Done still collapses (snaps). */
+      @media (prefers-reduced-motion: reduce) {
+        .order {
+          animation: none;
+          transition: none;
+        }
+
+        .order.done {
+          animation: card-collapse 0.01s linear 4s forwards;
+        }
+
+        .stepper::after,
+        .dot,
+        .lbl {
+          transition: none;
+        }
+
+        .oh .pz,
+        .dot svg,
+        .top .logo .logo-text,
+        .btn.primary::before {
+          animation: none;
+        }
+
+        .bar > span,
+        .chip,
+        .pub-btn,
+        .pub-dot {
+          transition: none;
+          animation: none;
+        }
+      }
+
+      /* ===== Deployment panel ===== */
+      /* Glass card; the 3px left accent takes the colour of its version badge. */
+      .ver {
+        @apply mb-[11px] rounded-xl border border-l-[3px] border-white/10 border-l-uv bg-white/[0.04] p-3
+          backdrop-blur-sm;
+      }
+
+      .ver:has(.vb.b-v2) {
+        @apply border-l-green;
+      }
+
+      .ver:has(.vb.b-v3) {
+        @apply border-l-amber;
+      }
+
+      .vrow {
+        @apply mb-[10px] flex flex-wrap items-center gap-[7px] text-[12px];
+      }
+
+      .vrow .chip {
+        @apply ml-auto;
+      }
+
+      .bar {
+        @apply h-1.5 overflow-hidden rounded-full bg-white/10;
+      }
+
+      .bar > span {
+        @apply block h-full w-[var(--bar-w,0)] rounded-full;
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .pin {
+        @apply mt-2 font-mono text-[11px] text-slateb;
+      }
+
+      /* ===== Buttons ===== */
+      .controls {
+        @apply mt-4 flex gap-2;
+      }
+
+      /* The server renders an empty controls region while only one version exists; drop the row's margin too. */
+      .controls:empty {
+        @apply hidden;
+      }
+
+      .controls .btn {
+        @apply mt-0 flex-1;
+      }
+
+      .btn {
+        @apply relative mt-[9px] cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-center
+          font-mono text-[12px] font-medium text-neutral-100 backdrop-blur-sm transition;
+      }
+
+      .btn:hover:not(:disabled) {
+        @apply bg-white/10;
+      }
+
+      .btn:disabled {
+        @apply cursor-not-allowed opacity-45;
+      }
+
+      .btn.danger {
+        @apply border-red/40 bg-red/10 text-red-400;
+      }
+
+      .btn.danger:hover:not(:disabled) {
+        @apply bg-red/20;
+      }
+
+      /* Primary: violet → blue gradient with a violet glow. */
+      .btn.primary {
+        @apply border-transparent bg-[linear-gradient(100deg,#8b5cf6,#5b7cfa)] text-white
+          shadow-[0_0_30px_-6px_#8b5cf6];
+      }
+
+      .btn.primary:focus-visible {
+        @apply outline-none;
+      }
+
+      /* Hover/focus ring of the primary button: a spinning conic gradient kept
+         to a 3px ring by the mask. Pseudo-element + mask compositing, so raw
+         CSS. */
+      .btn.primary::before {
+        content: "";
+        position: absolute;
+        inset: -3px;
+        border-radius: 11px;
+        padding: 3px;
+        background: conic-gradient(from var(--btn-angle), #8b5cf6, #22d3ee, #b6f35a, #22d3ee, #8b5cf6);
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.55));
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+      }
+
+      .btn.primary:hover:not(:disabled)::before,
+      .btn.primary:focus-visible::before {
+        @apply animate-btn-spin opacity-100;
+      }
+
+      /* ===== Toast ===== */
+      /* Sized to its message but capped to the viewport minus 18px margins, so a
+         long message wraps instead of overflowing narrow screens. Stacked above
+         the modal scrim (z-50) because Deploy/Rollback errors surface here
+         while the modal stays open. */
+      .toast {
+        @apply pointer-events-none fixed bottom-[18px] left-1/2 z-[60] w-max max-w-[calc(100vw-36px)]
+          -translate-x-1/2 rounded-lg border border-red/40 bg-[#2a0f1c]/90 px-4 py-2.5 text-center font-mono
+          text-[12px] text-red-300 opacity-0 backdrop-blur-sm;
+      }
+
+      /* Swapped in as <div class="toast show">…</div>; fades out after ~4s, no JS. */
+      .toast.show {
+        @apply animate-toast-out opacity-100;
+      }
+
+      /* ===== Deploy modal ===== */
+      /* The scrim's padding keeps a margin around the modal on phones. */
+      .modal-scrim {
+        @apply fixed inset-0 z-50 flex items-center justify-center bg-base/70 p-4 backdrop-blur-sm;
+      }
+
+      /* Opaque dark-violet surface: a backdrop-filter nested inside the blurred
+         scrim does not blur the page, so a translucent fill would let the cards
+         show through sharply. */
+      .modal {
+        @apply w-full max-w-[360px] rounded-xl border border-white/10 bg-[linear-gradient(180deg,#1a1633,#131027)] p-7
+          shadow-[0_20px_60px_-20px_rgba(139,92,246,0.45)];
+      }
+
+      /* Phones (<=420px): tighter modal padding. Raw CSS, as @apply cannot emit
+         media queries in the Play CDN. */
+      @media (max-width: 420px) {
+        .modal {
+          padding: 20px;
+        }
+      }
+
+      .modal h3 {
+        @apply m-0 mb-2 text-xl font-semibold tracking-tight text-white;
+      }
+
+      .modal-note {
+        @apply mt-5 text-xs leading-relaxed text-neutral-400;
+      }
+
+      .modal-lbl {
+        @apply mt-5 mb-2 flex justify-between font-mono text-[11px] uppercase tracking-[0.2em] text-neutral-500;
+      }
+
+      .radios {
+        @apply flex gap-2.5;
+      }
+
+      .radio {
+        @apply flex-1 cursor-pointer rounded-lg border border-white/10 bg-white/5 py-2.5 text-center
+          transition-colors;
+      }
+
+      .radio:has(input:checked) {
+        @apply border-violet bg-violet/15;
+      }
+
+      .radio:not(:has(input:checked)):hover {
+        @apply border-white/20 bg-white/10;
+      }
+
+      /* Visually hidden rather than display:none, so the radios stay reachable
+         by keyboard and the focus ring shows on their label. */
+      .radio input {
+        @apply sr-only;
+      }
+
+      /* Modal range input: 3 reachable stops (25/50/100) via min=0 max=2. */
+      .stepper-range {
+        @apply block w-full accent-amber;
+      }
+
+      .modal-acts {
+        @apply mt-5 flex gap-2.5;
+      }
+
+      .modal-acts .btn {
+        @apply flex-1;
+      }
+    </style>
   </head>
 
   <body hx-ext="sse,response-targets,morph">
+    <!-- Inline SVG sprite: every illustration and icon, defined once and drawn
+         by the templates with <svg><use href="#…"/></svg>, so fragments pushed
+         over SSE reuse it. Pizzas are 48x48 top-down flat art built from the
+         shared layers in <defs>; step icons are 24x24 line art whose stroke
+         style comes from the CSS (.dot svg). -->
+    <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <circle id="pz-crust" cx="24" cy="24" r="21.5" fill="#e8a54b" stroke="#c47f2c" stroke-width="2" />
+        <circle id="pz-sauce" cx="24" cy="24" r="17.5" fill="#d64532" />
+        <g id="pz-cheese" fill="#fbe7b5">
+          <ellipse cx="17" cy="17.5" rx="5" ry="4.2" />
+          <ellipse cx="30.5" cy="16" rx="4.5" ry="4" />
+          <ellipse cx="31.5" cy="30.5" rx="5.5" ry="4.5" />
+          <ellipse cx="17.5" cy="31" rx="4.5" ry="4.8" />
+          <circle cx="24.5" cy="24" r="3.2" />
+        </g>
+        <!-- Toppings, centred on the origin and placed with x/y or a transform. -->
+        <path id="pz-basil" d="M-4.2 0Q0-3.2 4.2 0Q0 3.2-4.2 0Z" fill="#3f9b4a" />
+        <circle id="pz-salami" r="3.8" fill="#b8322a" stroke="#7c1d17" stroke-width="1" />
+        <g id="pz-chili">
+          <path d="M-4-1.2C-1-2.2 2.8-0.8 4 2.2C1.4 0.8-1.6 0.6-4 0.6Z" fill="#ff5a2c" />
+          <path d="M-4-0.3-5.4-1.6" stroke="#3f9b4a" stroke-width="1.2" stroke-linecap="round" />
+        </g>
+        <rect id="pz-ham" x="-2.6" y="-1.9" width="5.2" height="3.8" rx="1.2" fill="#f4a3a0" />
+        <circle id="pz-olive" r="1.8" fill="none" stroke="#2a2420" stroke-width="1.4" />
+        <g id="pz-mushroom">
+          <path d="M-3.2 0.4A3.2 2.8 0 0 1 3.2 0.4Z" fill="#a87a52" />
+          <rect x="-1.1" y="0.4" width="2.2" height="2.6" rx="0.7" fill="#dcc3a0" />
+        </g>
+        <path id="pz-artichoke" d="M0-3.2C2-1.5 2 1.5 0 3.2C-2 1.5-2-1.5 0-3.2Z" fill="#8aa35b" stroke="#5f7a3a"
+              stroke-width="0.6" />
+        <path id="pz-pineapple" d="M0-2.8 2.8 2H-2.8Z" fill="#f6c945" stroke="#d9a21f" stroke-width="0.6"
+              stroke-linejoin="round" />
+        <!-- Pepper strip: its stroke colour is set by each <use>. -->
+        <path id="pz-pepper" d="M-3 1.2Q0-2.4 3 1.2" fill="none" stroke-width="1.8" stroke-linecap="round" />
+        <circle id="pz-onion" r="2.4" fill="none" stroke="#c38ad0" stroke-width="1.4" />
+      </defs>
+
+      <!-- ===== Pizzas (one per menu item, see pizzaIcon in render.go) ===== -->
+      <symbol id="pizza-margherita" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-basil" transform="translate(20 19) rotate(-35)" />
+        <use href="#pz-basil" transform="translate(30 27) rotate(25)" />
+        <use href="#pz-basil" transform="translate(19 31) rotate(70)" />
+      </symbol>
+
+      <symbol id="pizza-pepperoni" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-salami" x="16" y="18" />
+        <use href="#pz-salami" x="29" y="14.5" />
+        <use href="#pz-salami" x="34" y="26" />
+        <use href="#pz-salami" x="26" y="34" />
+        <use href="#pz-salami" x="15" y="30" />
+        <use href="#pz-salami" x="24" y="24.5" />
+      </symbol>
+
+      <!-- Four cheese quarters over the crust, with faint slice cuts and blue
+           gorgonzola veins; almost no sauce shows. -->
+      <symbol id="pizza-quattro-formaggi" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <path d="M24 24V6.5A17.5 17.5 0 0 1 41.5 24Z" fill="#fbe7b5" />
+        <path d="M24 24H41.5A17.5 17.5 0 0 1 24 41.5Z" fill="#f5d27a" />
+        <path d="M24 24V41.5A17.5 17.5 0 0 1 6.5 24Z" fill="#fff3d6" />
+        <path d="M24 24H6.5A17.5 17.5 0 0 1 24 6.5Z" fill="#e9bf62" />
+        <path d="M24 6.5v35M6.5 24h35" stroke="#c47f2c" stroke-width="0.8" opacity="0.6" />
+        <g fill="#8ea4bf">
+          <circle cx="14" cy="29" r="1.5" />
+          <circle cx="19" cy="35" r="1.3" />
+        </g>
+      </symbol>
+
+      <!-- Sauce only: garlic slivers and oregano specks, no cheese. -->
+      <symbol id="pizza-marinara" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <g fill="#fff5e1">
+          <ellipse cx="18" cy="18" rx="3" ry="1.4" transform="rotate(30 18 18)" />
+          <ellipse cx="30" cy="19" rx="3" ry="1.4" transform="rotate(-20 30 19)" />
+          <ellipse cx="28" cy="30" rx="3" ry="1.4" transform="rotate(60 28 30)" />
+          <ellipse cx="17" cy="29" rx="3" ry="1.4" transform="rotate(-45 17 29)" />
+        </g>
+        <g fill="#6f9e45">
+          <circle cx="24" cy="23" r="1.4" />
+          <circle cx="34" cy="25" r="1.2" />
+          <circle cx="23" cy="34" r="1.2" />
+          <circle cx="22" cy="13.5" r="1.2" />
+        </g>
+      </symbol>
+
+      <symbol id="pizza-capricciosa" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-mushroom" x="17" y="18" />
+        <use href="#pz-mushroom" x="31" y="29.5" />
+        <use href="#pz-ham" transform="translate(30 16) rotate(15)" />
+        <use href="#pz-ham" transform="translate(17 31) rotate(-10)" />
+        <use href="#pz-olive" x="24" y="24" />
+        <use href="#pz-olive" x="35" y="22.5" />
+        <use href="#pz-artichoke" x="14" y="24.5" />
+        <use href="#pz-artichoke" x="25" y="34.5" />
+      </symbol>
+
+      <symbol id="pizza-diavola" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-salami" x="16.5" y="17.5" />
+        <use href="#pz-salami" x="32" y="30" />
+        <use href="#pz-salami" x="22" y="33" />
+        <use href="#pz-chili" transform="translate(30.5 16) rotate(25)" />
+        <use href="#pz-chili" transform="translate(16 27) rotate(-35)" />
+        <use href="#pz-chili" transform="translate(25 24) rotate(60)" />
+      </symbol>
+
+      <symbol id="pizza-hawaiian" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-pineapple" x="17" y="17.5" />
+        <use href="#pz-pineapple" transform="translate(32 23) rotate(40)" />
+        <use href="#pz-pineapple" transform="translate(22 32) rotate(-20)" />
+        <use href="#pz-pineapple" transform="translate(25 22) rotate(70)" />
+        <use href="#pz-ham" transform="translate(29.5 14.5) rotate(10)" />
+        <use href="#pz-ham" transform="translate(15 26) rotate(-15)" />
+        <use href="#pz-ham" transform="translate(31 32) rotate(20)" />
+      </symbol>
+
+      <symbol id="pizza-veggie-supreme" viewBox="0 0 48 48">
+        <use href="#pz-crust" />
+        <use href="#pz-sauce" />
+        <use href="#pz-cheese" />
+        <use href="#pz-pepper" stroke="#3f9b4a" transform="translate(17 18) rotate(-20)" />
+        <use href="#pz-pepper" stroke="#3f9b4a" transform="translate(30 31) rotate(150)" />
+        <use href="#pz-pepper" stroke="#f6c945" transform="translate(31 17) rotate(30)" />
+        <use href="#pz-pepper" stroke="#f6c945" transform="translate(17 31) rotate(200)" />
+        <use href="#pz-olive" x="24" y="24" />
+        <use href="#pz-olive" x="35" y="24" />
+        <use href="#pz-onion" x="13" y="24" />
+        <use href="#pz-onion" x="24" y="13" />
+      </symbol>
+
+      <!-- ===== Stepper icons (one per step label, see stepIcon in render.go) ===== -->
+      <!-- New: order ticket with a torn edge. -->
+      <symbol id="step-new" viewBox="0 0 24 24">
+        <path d="M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21Z" />
+        <path d="M9 8h6M9 12h6M9 16h3" />
+      </symbol>
+
+      <!-- Cook: oven flame with an inner tongue. -->
+      <symbol id="step-cook" viewBox="0 0 24 24">
+        <path d="M12 3c1 3 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 2-4.5 0 1.5.8 2.5 2 3-.5-3 0-5.5 1-8.5Z" />
+        <path d="M12 20a2 2 0 0 1-2-2c0-1.2 1-2 2-3.2 1 1.2 2 2 2 3.2a2 2 0 0 1-2 2Z" />
+      </symbol>
+
+      <!-- QC: magnifying glass over a check mark. -->
+      <symbol id="step-qc" viewBox="0 0 24 24">
+        <circle cx="10.5" cy="10.5" r="6.5" />
+        <path d="m15.5 15.5 4.5 4.5" />
+        <path d="m8 10.5 2 2 3.5-3.5" />
+      </symbol>
+
+      <!-- Out: delivery scooter with a box on the back. -->
+      <symbol id="step-out" viewBox="0 0 24 24">
+        <circle cx="6" cy="17.5" r="2.5" />
+        <circle cx="18" cy="17.5" r="2.5" />
+        <path d="M8.5 17.5H14l2.5-6.5" />
+        <path d="M18 17.5 15.5 6H13" />
+        <rect x="3" y="8.5" width="7" height="5.5" rx="1" />
+      </symbol>
+
+      <!-- Drone: quadcopter (side view) carrying a pizza box. -->
+      <symbol id="step-drone" viewBox="0 0 24 24">
+        <path d="M4 5.5h6M14 5.5h6M7 5.5V9M17 5.5V9M5 9h14" />
+        <rect x="9" y="9" width="6" height="3.5" rx="1" />
+        <path d="M10.5 12.5V15M13.5 12.5V15" />
+        <rect x="8.5" y="15" width="7" height="4.5" rx="0.8" />
+      </symbol>
+
+      <!-- Done: home, the order has arrived. -->
+      <symbol id="step-done" viewBox="0 0 24 24">
+        <path d="M4 11 12 4l8 7" />
+        <path d="M6 9.5V20h12V9.5" />
+        <path d="M10 20v-5h4v5" />
+      </symbol>
+
+      <!-- Fallback for an unknown step label. -->
+      <symbol id="step-generic" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.5" />
+      </symbol>
+
+      <!-- Paused empty state: a closed pizza box, fast asleep (64x48 line art,
+           stroke style from .orders-empty-art). -->
+      <symbol id="pizza-box-sleeping" viewBox="0 0 64 48">
+        <path d="M8 34 22 24h34L42 34Z" />
+        <path d="M8 34h34v10H8Z" />
+        <path d="M42 34 56 24v10L42 44" />
+        <ellipse cx="32" cy="29" rx="6" ry="2.6" />
+        <path d="M40 9h6l-6 7h6M50 3h4l-4 5h4" />
+      </symbol>
+    </svg>
+
+    <!-- Fixed decorative backdrop layers (stars, fading grid) behind the app. -->
+    <div class="stars" aria-hidden="true"></div>
+    <div class="grid-overlay" aria-hidden="true">
+      <!-- Precomputed perspective grid: 96-unit cells on a plane tilted 25deg
+           away under a 1200-unit perspective, so the lines converge towards a
+           vanishing point about 2570 units above the bottom edge. -->
+      <svg viewBox="0 0 3200 900" preserveAspectRatio="xMidYMax slice" xmlns="http://www.w3.org/2000/svg">
+        <path fill="none" stroke="#b4a0ff" stroke-opacity="0.18" stroke-width="1" vector-effect="non-scaling-stroke"
+              d="M1552 900L1568.8 0M1648 900L1631.2 0M1456 900L1506.4 0M1744 900L1693.6 0M1360 900L1443.9 0
+                M1840 900L1756.1 0M1264 900L1381.5 0M1936 900L1818.5 0M1168 900L1319.1 0M2032 900L1880.9 0
+                M1072 900L1256.7 0M2128 900L1943.3 0M976 900L1194.2 0M2224 900L2005.8 0M880 900L1131.8 0
+                M2320 900L2068.2 0M784 900L1069.4 0M2416 900L2130.6 0M688 900L1007 0M2512 900L2193 0M592 900L944.5 0
+                M2608 900L2255.5 0M496 900L882.1 0M2704 900L2317.9 0M400 900L819.7 0M2800 900L2380.3 0
+                M304 900L757.3 0M2896 900L2442.7 0M208 900L694.8 0M2992 900L2505.2 0M112 900L632.4 0
+                M3088 900L2567.6 0M16 900L570 0M3184 900L2630 0M-80 900L507.5 0M3280 900L2692.5 0M-176 900L445.1 0
+                M3376 900L2754.9 0M-272 900L382.7 0M3472 900L2817.3 0M-368 900L320.3 0M3568 900L2879.7 0
+                M-464 900L257.8 0M3664 900L2942.2 0M-560 900L195.4 0M3760 900L3004.6 0M-656 900L133 0
+                M3856 900L3067 0M-752 900L70.6 0M3952 900L3129.4 0M-848 900L8.1 0M4048 900L3191.9 0M-944 900L-54.3 0
+                M4144 900L3254.3 0M0 900H3200M0 815.8H3200M0 737H3200M0 663H3200M0 593.4H3200M0 527.9H3200
+                M0 466H3200M0 407.5H3200M0 352.1H3200M0 299.6H3200M0 249.8H3200M0 202.4H3200M0 157.3H3200
+                M0 114.3H3200M0 73.2H3200M0 34.1H3200" />
+      </svg>
+    </div>
+
     <div class="app" sse-connect="/events">
       <header class="top">
-        <a class="logo" href="/" aria-label="Pizza Tracker home">
-          <svg class="logo-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
-               xmlns="http://www.w3.org/2000/svg">
-            <g fill="#e8923a" stroke="#f4c542" stroke-width="1.4" stroke-linejoin="round">
-              <path d="M12 12L20.5 12A8.5 8.5 0 1 1 12 3.5Z" />
-              <path d="M14.4 9.6L14.4 1.1A8.5 8.5 0 0 1 22.9 9.6Z" />
-            </g>
-            <g fill="#c0392b">
-              <circle cx="15.5" cy="15.5" r="1.05" />
-              <circle cx="8.5" cy="15.5" r="1.05" />
-              <circle cx="8.5" cy="8.5" r="1.05" />
-              <circle cx="11" cy="13.5" r="1.05" />
-              <circle cx="16.8" cy="7.2" r="1.05" />
-              <circle cx="15" cy="9.3" r="1.05" />
-            </g>
-          </svg>
-          <span>Pizza Tracker</span>
-        </a>
-        <div class="attribution">
-          <span>Workflow Versioning by</span>
-          <a href="https://temporal.io" target="_blank" rel="noopener noreferrer">
-            <img src="https://images.ctfassets.net/0uuz8ydxyd9p/2ctnUPEhKA75tYnrl2Kzvj/90563965bc4ea2af9442b6eb4ba43180/Temporal_LogoLockup_Horizontal_light_1_2x.png"
-                 alt="Temporal" />
+        <div class="top-in">
+          <a class="logo" href="/" aria-label="Pizza Tracker home">
+            <svg class="logo-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"
+                 xmlns="http://www.w3.org/2000/svg">
+              <g fill="#e8923a" stroke="#f4c542" stroke-width="1.4" stroke-linejoin="round">
+                <path d="M12 12L20.5 12A8.5 8.5 0 1 1 12 3.5Z" />
+                <path d="M14.4 9.6L14.4 1.1A8.5 8.5 0 0 1 22.9 9.6Z" />
+              </g>
+              <g fill="#c0392b">
+                <circle cx="15.5" cy="15.5" r="1.05" />
+                <circle cx="8.5" cy="15.5" r="1.05" />
+                <circle cx="8.5" cy="8.5" r="1.05" />
+                <circle cx="11" cy="13.5" r="1.05" />
+                <circle cx="16.8" cy="7.2" r="1.05" />
+                <circle cx="15" cy="9.3" r="1.05" />
+              </g>
+            </svg>
+            <span class="logo-text">Pizza Tracker</span>
           </a>
+          <div class="attribution">
+            <span>Workflow Versioning by</span>
+            <a href="https://temporal.io" target="_blank" rel="noopener noreferrer">
+              <img src="https://images.ctfassets.net/0uuz8ydxyd9p/2ctnUPEhKA75tYnrl2Kzvj/90563965bc4ea2af9442b6eb4ba43180/Temporal_LogoLockup_Horizontal_light_1_2x.png"
+                   alt="Temporal" />
+            </a>
+          </div>
         </div>
       </header>
 
       <div class="dbody">
         <section class="dleft">
-          <div class="sect">Live orders</div>
+          <!-- The order-publishing toggle (sse-swap="publishing") is streamed and
+               morphed like the controls row: PUT /pause pauses new order starts,
+               DELETE /pause resumes them. Both answer an empty 200; every browser
+               redraws the toggle from the SSE frame the server pushes right away. -->
+          <div class="sect-row">
+            <div class="sect">Live orders</div>
+            <div class="publishing" id="publishing" sse-swap="publishing" hx-swap="morph:innerHTML"></div>
+          </div>
           <div class="olist" id="orders" sse-swap="orders" hx-swap="morph:innerHTML"></div>
         </section>
 
@@ -74,11 +1233,12 @@
 
           <!-- Controls row, streamed server-side via SSE (sse-swap="controls")
                and morphed in place like #orders, so button nodes, htmx bindings
-               and focus are preserved. The server re-renders the generator,
-               Deploy, and Rollback controls every frame. Deploy is disabled with
-               fewer than two versions; Rollback is disabled unless a version is
-               currently ramping. (Recovery is now a per-card amber "Fix" text
-               button shown on a failing order, not a control here.) -->
+               and focus are preserved. The server re-renders both buttons every
+               frame. Both are hidden with fewer than two versions (the empty
+               row collapses via .controls:empty); Rollback is disabled unless
+               a version is currently ramping. (Recovery is
+               now a per-card amber "Fix" text button shown on a failing order,
+               not a control here.) -->
           <div class="controls" id="controls" sse-swap="controls" hx-swap="morph:innerHTML"></div>
         </aside>
       </div>
@@ -96,10 +1256,9 @@
     <div id="modal-host"></div>
 
     <!-- Action results and errors are swapped here as toast fragments. The
-         generator, Deploy, and Rollback buttons live in the Deployment column
-         controls row, and each failing order card carries a per-card "Fix"
-         (recover) button; all surface success and error responses here via
-         #toast. -->
+         Deploy/Rollback buttons live in the Deployment column controls row, and
+         each failing order card carries a per-card "Fix" (recover) button; all
+         surface success and error responses here via #toast. -->
     <div id="toast" hx-target="#toast" hx-target-error="#toast"></div>
   </body>
 </html>
