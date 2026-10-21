@@ -423,6 +423,8 @@ back](#shipping-versions-and-rolling-back)).
 
 ## Demo script
 
+To present the demo, follow [RUNBOOK.md](RUNBOOK.md): the walkthrough beat by beat, and where in the code each part happens.
+
 The on-stage flow that exercises every guarantee:
 
 > Ramp, promote and rollback are now driven from the **Deploy**
